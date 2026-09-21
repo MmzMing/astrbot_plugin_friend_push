@@ -132,7 +132,6 @@ class FriendPushStar(Star):
         except ParseError as e:
             return event.plain_result(f"{e}\n\n用法：{USAGE}")
 
-        api = None
         try:
             api = self._api()
         except GitHubError as e:
