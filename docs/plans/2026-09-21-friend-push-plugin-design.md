@@ -48,19 +48,20 @@ Tab 缩进，字段书写顺序固定为 `title, imgurl, desc, [image], [tags], 
 
 ```
 astrbot_plugin_friend_push/
-├── metadata.yaml         # 插件元信息 + 配置项 schema
+├── metadata.yaml         # 插件元信息（name/author/desc/version）
+├── _conf_schema.json     # 配置项 schema，AstrBot 据此渲染 WebUI 配置表单
 ├── main.py               # 命令注册 / 参数解析 / 确认状态机 / 白名单
 ├── friends_io.py         # 锚点定位插入、TS 对象渲染、查重、unified diff
 ├── avatar.py             # 下载 imgurl → Pillow → webp bytes、slug 推导
 ├── github_api.py         # 薄封装 GET/PUT Contents API、SHA 处理
-├── requirements.txt      # Pillow
+├── requirements.txt      # 仅 Pillow（见第 14 节，AstrBot 本体已带）
 └── README.md             # PAT 权限说明 + 命令示例
 ```
 
 拆分理由：`friends_io.py` 和 `avatar.py` 是不依赖 AstrBot 的纯逻辑，可以直接 pytest；
 AstrBot 的框架耦合全部关在 `main.py` 里。
 
-网络请求复用 AstrBot 自带的异步 HTTP 客户端，不引入 `requests`。
+网络请求用 `aiohttp`（AstrBot 本体依赖，无需新增）。
 
 ## 4. 配置项
 
@@ -176,9 +177,12 @@ GitHub API 层用 mock。真机由站长在本地 AstrBot 加载验证，建议�
 
 ## 12. 已知风险
 
-本机未安装 AstrBot，官方 `dev/star/plugin-new.html` 页面未给出装饰器签名与配置读取的确切
-代码。实现第一步必须先拉官方 helloworld 插件模板核对 `register_command`、配置读取、
-`reply` 的实际 API，再写 `main.py`，不凭记忆猜框架接口。
+原风险"本机未安装 AstrBot，官方文档未给出装饰器签名"已通过直接阅读
+`astrbot==4.28.1` 包源码消除，结论见第 14 节。
+
+残留风险：`event.get_sender_id()` 在 QQ 官方机器人（`qq_official`）通道下返回的是
+平台侧 openid 而非 QQ 号，白名单需要按实际通道的 ID 填写。NapCat/OneBot（`aiocqhttp`）
+通道返回的就是 QQ 号。
 
 ## 13. 安全
 
@@ -186,3 +190,29 @@ GitHub API 层用 mock。真机由站长在本地 AstrBot 加载验证，建议�
 - 建议 fine-grained PAT 限定单仓库 + 仅 `contents: write`，不给 classic token。
 - 白名单为空时拒绝所有请求，而不是放开。
 - commit message 固定前缀 `feat(friends): add <title> via astrbot`，便于事后筛出机器人提交。
+
+## 14. AstrBot 4.28.1 API 核实结果
+
+来源：`pip download astrbot==4.28.1` 后直接读包内源码，不是文档转述。
+
+| 事项 | 结论 | 出处 |
+|---|---|---|
+| 插件类 | 继承 `astrbot.api.star.Star` 即被自动识别注册；`@register(...)` 装饰器已标记 DEPRECATED，不用 | `core/star/base.py:__init_subclass__`、`core/star/register/star.py` |
+| 实例化 | `metadata.star_cls_type(context=self.context, config=plugin_config)`，`TypeError` 时退化为只传 `context` | `core/star/star_manager.py:1227` |
+| 读配置 | `self.config` 是 `AstrBotConfig`（`dict` 子类），键即 schema 顶层键；缺键时按 schema 的 `default` 自动补齐并回写 | `core/config/astrbot_config.py` |
+| 配置 schema 文件 | 文件名必须是 **`_conf_schema.json`**（JSON，非 YAML），字段 `type` / `description` / `default` | `star_manager.py:212,1158-1170` |
+| 支持的 `type` | `int float bool string text list file object template_list dict` | `core/config/default.py:DEFAULT_VALUE_MAP` |
+| 命令注册 | `from astrbot.api.event import filter` → `@filter.command("友链")`，对应 `register_command(command_name, sub_command, alias, **kwargs)` | `api/event/filter/__init__.py`、`register/star_handler.py` |
+| 参数传递 | `CommandFilter.filter` 先 `re.sub(r"\s+", " ", msg)` 归一空白、去掉指令名，再按空格切分并按 handler 签名转换；`GreedyStr` 注解收集剩余全部文本 | `core/star/filter/command.py:186-215` |
+| 唤醒约束 | 受 `wake_prefix` 制约，且 `event.is_at_or_wake_command` 必须为真，即用户需发 `/友链 ...` | `command.py:186`、`waking_check/stage.py` |
+| 回复 | `return event.plain_result(text)`，或 `await event.send(MessageChain()...)` | `core/platform/astr_message_event.py:404` |
+| 发送者 ID | `event.get_sender_id()`、`event.get_group_id()`、`event.is_admin()` | `astr_message_event.py:195-268` |
+| 现成权限过滤器 | `@filter.permission_type(PermissionType.ADMIN)` 走 AstrBot 全局 admins 配置——本插件不用，改用自有 QQ 白名单以符合第 4 节设计 | `core/star/filter/permission.py` |
+| 持久化 KV | `self.put_kv_data / get_kv_data`（mixin 已具备）——按第 10 节决定不使用 | `core/utils/plugin_kv_store.py` |
+| 数据目录 | `StarTools.get_data_dir(plugin_name)` | `core/star/star_tools.py:244` |
+| 依赖 | AstrBot 自带 `aiohttp>=3.11.18`、`pillow>=11.2.1`、`httpx`，因此本插件零新增运行时依赖 | wheel `METADATA` |
+
+实现环境限制：本地 venv 能装 `pytest` + `Pillow` 跑纯逻辑单测，但 `pip install astrbot`
+因其传递依赖 `aiocqhttp` 需要现场编译而失败，所以 `main.py` 只能做语法级校验，
+框架行为留给第 11 节的真机联调。
+

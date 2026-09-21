@@ -1,0 +1,2 @@
+class GreedyStr(str):
+    pass

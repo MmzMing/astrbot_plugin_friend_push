@@ -1,0 +1,2 @@
+# AstrBot 4.x 本体已自带 pillow 与 aiohttp，这里只声明本插件直接 import 的下限
+Pillow>=11.2.1
