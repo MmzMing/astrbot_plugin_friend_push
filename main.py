@@ -64,6 +64,8 @@ class FriendPushStar(Star):
 
     def __init__(self, context: Context, config: dict | None = None) -> None:
         super().__init__(context, config)
+        # AstrBot 的 Star 基类只存 context，配置得插件自己接下来
+        self.config = config or {}
         self._pending: dict[str, PendingOp] = {}
         self._client: aiohttp.ClientSession | None = None
         self._gate = asyncio.Lock()

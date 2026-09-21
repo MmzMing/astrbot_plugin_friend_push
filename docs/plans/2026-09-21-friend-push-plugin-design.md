@@ -221,7 +221,7 @@ Node 24 直接执行验证过 TS 语法。目标仓库结构调整后，这两�
 |---|---|---|
 | 插件类 | 继承 `astrbot.api.star.Star` 即被自动识别注册；`@register(...)` 装饰器已标记 DEPRECATED，不用 | `core/star/base.py:__init_subclass__`、`core/star/register/star.py` |
 | 实例化 | `metadata.star_cls_type(context=self.context, config=plugin_config)`，`TypeError` 时退化为只传 `context` | `core/star/star_manager.py:1227` |
-| 读配置 | `self.config` 是 `AstrBotConfig`（`dict` 子类），键即 schema 顶层键；缺键时按 schema 的 `default` 自动补齐并回写 | `core/config/astrbot_config.py` |
+| 读配置 | loader 以 `config=` 形参把 `AstrBotConfig`（`dict` 子类）传进 `__init__`，但 `Star` 基类**只存 `self.context`**，插件必须自己 `self.config = config`；缺键时按 schema 的 `default` 自动补齐并回写 | `core/star/base.py:28`、`core/config/astrbot_config.py` |
 | 配置 schema 文件 | 文件名必须是 **`_conf_schema.json`**（JSON，非 YAML），字段 `type` / `description` / `default` | `star_manager.py:212,1158-1170` |
 | 支持的 `type` | `int float bool string text list file object template_list dict` | `core/config/default.py:DEFAULT_VALUE_MAP` |
 | 命令注册 | `from astrbot.api.event import filter` → `@filter.command("友链")`，对应 `register_command(command_name, sub_command, alias, **kwargs)` | `api/event/filter/__init__.py`、`register/star_handler.py` |
