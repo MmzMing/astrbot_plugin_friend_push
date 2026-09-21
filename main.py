@@ -10,10 +10,17 @@ import time
 import aiohttp
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
+from astrbot.api.message_components import Image
 from astrbot.api.star import Context, Star
 from astrbot.core.star.filter.command import GreedyStr
 
-from .avatar import AvatarError, fetch_image, slug_from_url, to_webp, unique_slug
+from .cover import (
+    CoverError,
+    load_image_file,
+    slug_from_url,
+    to_webp,
+    unique_slug,
+)
 from .friends_io import (
     USAGE,
     AnchorError,
@@ -32,6 +39,7 @@ MAX_DIFF_LINES = 40
 CONFIRM_WORDS = {"确认", "提交", "yes", "ok"}
 CANCEL_WORDS = {"取消", "cancel"}
 SESSION_GONE = "没有待确认的提交，请重新发送 /友链 ..."
+NO_COVER_HINT = "本条消息没有附带图片，将不写 image 封面字段。"
 
 
 @dataclasses.dataclass
@@ -42,16 +50,16 @@ class PendingOp:
     config_path: str
     diff: str
     notes: tuple[str, ...] = ()
-    image_path: str | None = None
-    image_data: bytes | None = None
+    cover_path: str | None = None
+    cover_data: bytes | None = None
     expires_at: float = 0.0
 
 
 class FriendPushStar(Star):
     """在聊天里提交博客友链。
 
-    用法：/友链 标题|描述|站点URL|头像URL[|tags=Blog][|weight=5][|slug=xxx][|px=900][|resize=width][|noimg]
-    先看 diff，再发送 /友链 确认 才会真正写入仓库；/友链 取消 放弃。
+    用法：/友链 标题|描述|站点URL|头像URL[|tags=Blog][|weight=5][|slug=xxx][|px=900][|resize=width]
+    封面图随这条命令一起发（同一条消息带图）。先看 diff，再发送 /友链 确认 才会写入仓库。
     """
 
     def __init__(self, context: Context, config: dict | None = None) -> None:
@@ -70,7 +78,9 @@ class FriendPushStar(Star):
 
     def _tags_default(self) -> tuple[str, ...]:
         return tuple(
-            t.strip() for t in re.split(r"[,，]", str(self._c("default_tags", "Blog"))) if t.strip()
+            t.strip()
+            for t in re.split(r"[,，]", str(self._c("default_tags", "Blog")))
+            if t.strip()
         )
 
     def _allowed_ids(self) -> set[str]:
@@ -151,24 +161,28 @@ class FriendPushStar(Star):
 
         notes: list[str] = []
         link = sub.link
-        image_path: str | None = None
-        image_data: bytes | None = None
-        if bool(self._c("image_enabled", True)) and not sub.no_image:
-            link, image_path, image_data, extra = await self._build_image(
+        cover_path: str | None = None
+        cover_data: bytes | None = None
+        cover = self._cover_of(event)
+        if cover is None:
+            notes.append(NO_COVER_HINT)
+        elif not bool(self._c("cover_enabled", True)):
+            notes.append("cover_enabled 已关闭，不写 image 封面字段。")
+        else:
+            link, cover_path, cover_data, extra = await self._build_cover(
                 api,
+                cover,
                 sub.link,
                 sub.slug,
-                image_dir=str(self._c("image_dir", "public/assets/images/friends")),
+                cover_dir=str(self._c("cover_dir", "public/assets/images/friends")),
                 resize_mode=str(
-                    sub.resize_mode or self._c("image_resize_mode", "width")
+                    sub.resize_mode or self._c("cover_resize_mode", "width")
                 ),
-                px=int(sub.px or self._c("image_target_px", 900)),
-                quality=int(self._c("image_webp_quality", 82)),
-                upscale=bool(self._c("image_upscale", False)),
+                px=int(sub.px or self._c("cover_target_px", 900)),
+                quality=int(self._c("cover_webp_quality", 82)),
+                upscale=bool(self._c("cover_upscale", False)),
             )
             notes.extend(extra)
-        elif sub.no_image:
-            notes.append("按 noimg 跳过头像，仅写 imgurl 外链。")
 
         try:
             new_src = insert_entry(current.content, link)
@@ -183,14 +197,15 @@ class FriendPushStar(Star):
             config_path=config_path,
             diff=_clip(diff),
             notes=tuple(notes),
-            image_path=image_path,
-            image_data=image_data,
+            cover_path=cover_path,
+            cover_data=cover_data,
             expires_at=time.monotonic() + PENDING_TTL_SECONDS,
         )
 
         head = (
             f"即将新增友链：{link.title}\n"
             f"站点：{link.siteurl}\n"
+            f"头像：{link.imgurl}\n"
             f"weight={link.weight} tags={','.join(link.tags)}"
         )
         if notes:
@@ -199,33 +214,47 @@ class FriendPushStar(Star):
             f"{head}\n\n{diff}\n\n确认提交请发送：/友链 确认（30 分钟内有效）"
         )
 
-    async def _build_image(
+    @staticmethod
+    def _cover_of(event: AstrMessageEvent) -> Image | None:
+        """封面图只认同一条消息里附带的图片。"""
+        for comp in event.get_messages():
+            if isinstance(comp, Image):
+                return comp
+        return None
+
+    async def _build_cover(
         self,
         api: ContentsAPI,
+        comp: Image,
         link,
         slug_hint: str | None,
         *,
-        image_dir: str,
+        cover_dir: str,
         resize_mode: str,
         px: int,
         quality: int,
         upscale: bool,
     ):
-        """头像不可用时降级为不写 image，绝不因此中断提交。"""
+        """封面图不可用时降级为不写 image，绝不因此中断提交。"""
         try:
-            names = await api.list_dir(image_dir)
+            names = await api.list_dir(cover_dir)
         except GitHubError as e:
-            return link, None, None, [f"读取头像目录失败：{e}；本次不写 image 字段。"]
+            return link, None, None, [f"读取封面图目录失败：{e}；本次不写 image 字段。"]
         taken = {n[: -len(".webp")] for n in names if n.endswith(".webp")}
         slug = unique_slug(slug_hint or slug_from_url(link.siteurl), taken)
-        repo_path, url_path = image_paths(image_dir, slug)
+        repo_path, url_path = image_paths(cover_dir, slug)
         try:
-            raw = await fetch_image(api.client, link.imgurl)
-            conv = to_webp(raw, resize_mode, px, quality, upscale)
-        except AvatarError as e:
-            return link, None, None, [f"头像处理失败：{e}；本次不写 image 字段。"]
+            path = await comp.convert_to_file_path()
+        except Exception as e:  # noqa: BLE001 - 框架的 MediaResolver 抛的类型不固定
+            return link, None, None, [
+                f"封面图读取失败：{e.__class__.__name__}；本次不写 image 字段。"
+            ]
+        try:
+            conv = to_webp(load_image_file(path), resize_mode, px, quality, upscale)
+        except CoverError as e:
+            return link, None, None, [f"封面图处理失败：{e}；本次不写 image 字段。"]
         note = (
-            f"头像：{conv.size[0]}x{conv.size[1]} webp "
+            f"封面：{conv.size[0]}x{conv.size[1]} webp "
             f"{max(1, len(conv.data) // 1024)}KB → {url_path}"
         )
         return dataclasses.replace(link, image=url_path), repo_path, conv.data, [note]
@@ -251,14 +280,14 @@ class FriendPushStar(Star):
         title = pending.submission.link.title
         done: list[str] = []
         try:
-            if pending.image_data is not None:
+            if pending.cover_data is not None:
                 commit = await api.put_bytes(
-                    str(pending.image_path),
-                    pending.image_data,
-                    message=f"feat(friends): add {title} avatar via astrbot",
+                    str(pending.cover_path),
+                    pending.cover_data,
+                    message=f"feat(friends): add {title} cover via astrbot",
                     sha=None,
                 )
-                done.append(f"头像 {commit.url}")
+                done.append(f"封面 {commit.url}")
             commit = await api.put_file(
                 pending.config_path,
                 pending.new_src,
@@ -272,7 +301,9 @@ class FriendPushStar(Star):
                 f"提交失败：{e}" + (f"\n已完成的部分：{tail}" if tail else "")
             )
 
-        return event.plain_result("✅ 已提交到 " + str(self._c("repo", "")) + "\n" + "\n".join(done))
+        return event.plain_result(
+            "✅ 已提交到 " + str(self._c("repo", "")) + "\n" + "\n".join(done)
+        )
 
     async def terminate(self) -> None:
         self._pending.clear()

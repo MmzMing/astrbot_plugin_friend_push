@@ -170,12 +170,12 @@ def make_diff(src: str, new_src: str, path: str = "friendsConfig.ts") -> str:
 
 
 def image_paths(image_dir: str, slug: str) -> tuple[str, str]:
-    """返回 (仓库内路径, 站点 URL 路径)。Astro 的 public/ 前缀不出现在 URL 里。"""
+    """封面图的 (仓库内路径, 站点 URL 路径)。Astro 的 public/ 前缀不出现在 URL 里。"""
     d = (image_dir or "").strip("/")
     return f"{d}/{slug}.webp", f"/{re.sub(r'^public/', '', d)}/{slug}.webp"
 
 
-USAGE = "/友链 标题|描述|站点URL|头像URL[|tags=Blog][|weight=5][|slug=xxx][|px=900][|resize=width][|noimg]"
+USAGE = "/友链 标题|描述|站点URL|头像URL[|tags=Blog][|weight=5][|slug=xxx][|px=900][|resize=width]"
 
 RESIZE_MODES = ("width", "height", "longest", "none")
 SLUG_RE = re.compile(r"^[A-Za-z0-9_-]{1,32}$")
@@ -191,7 +191,6 @@ class Submission:
     slug: str | None = None
     resize_mode: str | None = None
     px: int | None = None
-    no_image: bool = False
 
 
 def _require_http_url(value: str, label: str, *, need_dot: bool = False) -> str:
@@ -219,7 +218,8 @@ def parse_submission(
     default_weight: int = 5,
     default_tags: tuple[str, ...] = ("Blog",),
 ) -> Submission:
-    """解析 `/友链` 后面的参数串。竖线本身不可出现在字段值里。"""
+    """解析 `/友链` 后面的参数串。封面图不在参数里，来自同一条消息附带的图片。
+    竖线本身不可出现在字段值里。"""
     parts = [p.strip() for p in (text or "").split("|")]
     if len(parts) < 4:
         raise ParseError(f"参数不足。用法：{USAGE}")
@@ -236,7 +236,6 @@ def parse_submission(
     slug: str | None = None
     mode: str | None = None
     px: int | None = None
-    no_image = False
 
     for extra in parts[4:]:
         if not extra:
@@ -245,11 +244,8 @@ def parse_submission(
         key = key.strip().lower()
         raw = raw.strip()
         if not sep:
-            if key == "noimg":
-                no_image = True
-                continue
             raise ParseError(
-                f"无法识别的参数 `{extra}`。可用：tags= / weight= / slug= / px= / resize= / noimg"
+                f"无法识别的参数 `{extra}`。可用：tags= / weight= / slug= / px= / resize="
             )
         if key == "tags":
             parsed = tuple(t.strip() for t in re.split(r"[,，]", raw) if t.strip())
@@ -280,4 +276,4 @@ def parse_submission(
         enabled=True,
         tags=tags,
     )
-    return Submission(link=link, slug=slug, resize_mode=mode, px=px, no_image=no_image)
+    return Submission(link=link, slug=slug, resize_mode=mode, px=px)

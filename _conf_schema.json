@@ -19,9 +19,9 @@
     "description": "友链配置文件路径",
     "default": "src/config/friendsConfig.ts"
   },
-  "image_dir": {
+  "cover_dir": {
     "type": "string",
-    "description": "头像存放目录（仓库内相对路径）",
+    "description": "封面图存放目录（仓库内相对路径，对应 image 字段）",
     "default": "public/assets/images/friends"
   },
   "allowed_qqids": {
@@ -39,29 +39,29 @@
     "description": "默认标签，逗号分隔",
     "default": "Blog"
   },
-  "image_enabled": {
+  "cover_enabled": {
     "type": "bool",
-    "description": "是否下载头像并转成 webp 写入 image 字段",
+    "description": "是否把命令消息里的图片作为封面图上传并写入 image 字段",
     "default": true
   },
-  "image_resize_mode": {
+  "cover_resize_mode": {
     "type": "string",
-    "description": "缩放模式：width / height / longest / none",
+    "description": "封面图缩放模式：width / height / longest / none",
     "default": "width"
   },
-  "image_target_px": {
+  "cover_target_px": {
     "type": "int",
-    "description": "缩放目标像素，服务于上面选定的那条边",
+    "description": "封面图目标像素，服务于上面选定的那条边",
     "default": 900
   },
-  "image_upscale": {
+  "cover_upscale": {
     "type": "bool",
-    "description": "原图小于目标尺寸时是否放大",
+    "description": "封面原图小于目标尺寸时是否放大",
     "default": false
   },
-  "image_webp_quality": {
+  "cover_webp_quality": {
     "type": "int",
-    "description": "webp 编码质量 1-100",
+    "description": "封面图 webp 编码质量 1-100",
     "default": 82
   }
 }

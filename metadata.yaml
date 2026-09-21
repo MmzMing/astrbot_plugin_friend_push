@@ -4,7 +4,7 @@ author: MmzMing
 version: 0.1.0
 short_desc: 在聊天里一条命令把友链提交进博客仓库
 desc: |
-  站长向机器人发送 `/友链 标题|描述|站点URL|头像URL`，插件下载头像、转成 webp、
-  在 friendsConfig.ts 里追加一条友链，先在聊天里回 diff，确认后再通过 GitHub
-  Contents API 提交到目标仓库。
+  站长向机器人发送 `/友链 标题|描述|站点URL|头像URL`（同一条消息可附一张封面图），
+  插件把封面转成 webp 上传到 public/assets/images/friends/，在 friendsConfig.ts 里
+  追加一条友链，先在聊天里回 diff，确认后再通过 GitHub Contents API 提交。
 astrbot_version: ">=4.16,<5"
