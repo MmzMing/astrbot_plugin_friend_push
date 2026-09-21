@@ -13,8 +13,8 @@ from astrbot.api.event import AstrMessageEvent, MessageEventResult, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.star.filter.command import GreedyStr
 
-from avatar import AvatarError, fetch_image, slug_from_url, to_webp, unique_slug
-from friends_io import (
+from .avatar import AvatarError, fetch_image, slug_from_url, to_webp, unique_slug
+from .friends_io import (
     USAGE,
     AnchorError,
     ParseError,
@@ -25,7 +25,7 @@ from friends_io import (
     make_diff,
     parse_submission,
 )
-from github_api import ContentsAPI, GitHubError
+from .github_api import ContentsAPI, GitHubError
 
 PENDING_TTL_SECONDS = 30 * 60
 MAX_DIFF_LINES = 40
