@@ -58,16 +58,16 @@
 - **站点查重**：`siteurl` 归一化（协议、大小写、`www.`、尾斜杠、`index.html`）后重复则拒绝。
 - **slug**：默认取域名里第一个非通用子域 label（`blog.fqzlr.top` → `fqzlr`），撞名自动加数字后缀，`slug=` 可手动指定。
 
-## 本地开发与测试
+## 首次验证
 
-```bash
-python -m venv .venv && .venv/Scripts/python -m pip install -q pytest pillow aiohttp ruff
-.venv/Scripts/python -m pytest -q
+本目录只包含插件运行时代码，不带测试。第一次装载建议先把 `repo` 指向一个 fork 仓库，
+跑一遍完整链路：
+
+```
+/友链 测试站|一句简介|https://example.com/|https://example.com/avatar.png
+/友链 确认
 ```
 
-`tests/fixtures/friendsConfig.ts` 是目标仓库真实文件的一份快照，用于锚点插入的回归测试；
-目标仓库那次文件结构改动后需要同步刷新它。`tests/stubs/astrbot/` 是导入 `main.py`
-所需的最小 AstrBot 桩，因为完整 astrbot 包依赖 `aiocqhttp` 需要现场编译。
-
-插件本身需要真实 AstrBot 运行时的验证（`/友链` 唤醒、白名单 ID、真机提交），
-建议先把 `repo` 指向一个 fork 仓库跑一遍。
+重点看四件事：命令能否被唤醒、`allowed_qqids` 填的 ID 与实际通道是否一致（日志里会打印
+被拒绝的请求）、预览的 diff 是否只有新增行、fork 仓库里生成的 webp 尺寸是否符合
+`image_resize_mode` 的预期。

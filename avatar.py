@@ -1,4 +1,4 @@
-"""头像下载与 webp 转换：与 AstrBot、GitHub 均无耦合，便于单测。"""
+"""头像下载与 webp 转换：不依赖 AstrBot，也不碰 GitHub。"""
 
 from __future__ import annotations
 

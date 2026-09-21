@@ -58,7 +58,7 @@ astrbot_plugin_friend_push/
 └── README.md             # PAT 权限说明 + 命令示例
 ```
 
-拆分理由：`friends_io.py` 和 `avatar.py` 是不依赖 AstrBot 的纯逻辑，可以直接 pytest；
+拆分理由：`friends_io.py` 和 `avatar.py` 是不依赖 AstrBot 的纯逻辑；
 AstrBot 的框架耦合全部关在 `main.py` 里。
 
 网络请求用 `aiohttp`（AstrBot 本体依赖，无需新增）。
@@ -163,17 +163,23 @@ download(15s 超时, 8MB 上限, content-type 必须 image/*)
 不落盘到 AstrBot `data/` 目录：为"重启不丢一次未确认的提交"引入序列化和清理逻辑，
 对站长自用工具是过度设计；重发一条命令即可。
 
-## 11. 测试
+## 11. 验证
 
-pytest 只测纯函数，不打真实网络、不需要 token：
+开发期曾用 108 个 pytest 用例覆盖下列行为，后按站长要求从仓库移除，插件目录只保留
+运行时代码。改动这几处逻辑时，请把清单里的场景重新人工验证一遍：
 
 - `friends_io`：锚点插入（空数组 / 末元素无尾逗号 / CRLF / 标题含 emoji 与引号 /
-  中文不转义 / 括号出现在字符串里）、查重归一化、diff 生成
-- `avatar`：slug 推导与撞名加后缀、四种缩放模式的尺寸计算、不放大分支
-- `main` 的参数解析：竖线切分、`key=value` 后缀、非法输入
+  中文不转义 / 括号出现在字符串或注释里）、其余字节不变、diff 只含新增行
+- `avatar`：slug 推导与撞名加后缀、四种缩放模式的尺寸计算、不放大分支、
+  P/CMYK/L/RGBA/JPEG 输入、非法图片报错
+- `main`：参数解析（竖线切分、`key=value` 后缀、非法输入）、白名单、预览、
+  查重拒绝、头像降级、确认时先图后文件、409 不重复提交、取消与超时
+- `github_api`：base64 读写、401/403/404/409/422 分类、错误信息不含 token
 
-GitHub API 层用 mock。真机由站长在本地 AstrBot 加载验证，建议先把 `repo` 配置项指向
-一个 fork 试跑。
+`src/config/friendsConfig.ts` 曾被原样下载为 fixture 做过真实文件回归，且插入结果用
+Node 24 直接执行验证过 TS 语法。目标仓库结构调整后，这两项需要重做。
+
+真机验证由站长在本地 AstrBot 加载完成，建议先把 `repo` 配置项指向一个 fork 试跑。
 
 ## 12. 已知风险
 
@@ -212,7 +218,7 @@ GitHub API 层用 mock。真机由站长在本地 AstrBot 加载验证，建议�
 | 数据目录 | `StarTools.get_data_dir(plugin_name)` | `core/star/star_tools.py:244` |
 | 依赖 | AstrBot 自带 `aiohttp>=3.11.18`、`pillow>=11.2.1`、`httpx`，因此本插件零新增运行时依赖 | wheel `METADATA` |
 
-实现环境限制：本地 venv 能装 `pytest` + `Pillow` 跑纯逻辑单测，但 `pip install astrbot`
-因其传递依赖 `aiocqhttp` 需要现场编译而失败，所以 `main.py` 只能做语法级校验，
-框架行为留给第 11 节的真机联调。
+实现环境限制：`pip install astrbot` 因其传递依赖 `aiocqhttp` 需要现场编译而无法在本机
+完成，所以 `main.py` 与 AstrBot 框架的接线（唤醒、`GreedyStr` 实参、白名单 ID 取值）
+只能在真机联调时确认。
 
