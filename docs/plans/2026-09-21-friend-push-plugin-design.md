@@ -55,6 +55,7 @@ astrbot_plugin_friend_push/
 ├── avatar.py             # 下载 imgurl → Pillow → webp bytes、slug 推导
 ├── github_api.py         # 薄封装 GET/PUT Contents API、SHA 处理
 ├── requirements.txt      # 仅 Pillow（见第 14 节，AstrBot 本体已带）
+├── logo.png              # 插件封面，AstrBot 硬编码只认这个文件名
 └── README.md             # PAT 权限说明 + 命令示例
 ```
 
