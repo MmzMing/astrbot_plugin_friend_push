@@ -46,7 +46,7 @@ NO_COVER_HINT = "本条消息没有附带图片，将不写 image 封面字段�
 class PendingOp:
     submission: Submission
     new_src: str
-    src_sha: str
+    base_sha: str
     config_path: str
     diff: str
     notes: tuple[str, ...] = ()
@@ -152,6 +152,7 @@ class FriendPushStar(Star):
         config_path = str(self._c("config_path", "src/config/friendsConfig.ts"))
         try:
             current = await api.get_file(config_path)
+            base_sha = await api.head_sha()
         except GitHubError as e:
             return event.plain_result(f"读取 {config_path} 失败：{e}")
 
@@ -195,7 +196,7 @@ class FriendPushStar(Star):
         self._pending[event.get_session_id()] = PendingOp(
             submission=dataclasses.replace(sub, link=link),
             new_src=new_src,
-            src_sha=current.sha,
+            base_sha=base_sha,
             config_path=config_path,
             diff=_clip(diff),
             notes=tuple(notes),
@@ -280,31 +281,22 @@ class FriendPushStar(Star):
             return event.plain_result(f"配置有误：{e}")
 
         title = pending.submission.link.title
-        done: list[str] = []
+        files: list[tuple[str, bytes]] = [
+            (pending.config_path, pending.new_src.encode("utf-8"))
+        ]
+        if pending.cover_data is not None:
+            files.insert(0, (str(pending.cover_path), pending.cover_data))
         try:
-            if pending.cover_data is not None:
-                commit = await api.put_bytes(
-                    str(pending.cover_path),
-                    pending.cover_data,
-                    message=f"feat(friends): add {title} cover via astrbot",
-                    sha=None,
-                )
-                done.append(f"封面 {commit.url}")
-            commit = await api.put_file(
-                pending.config_path,
-                pending.new_src,
-                message=f"feat(friends): add {title} via astrbot",
-                sha=pending.src_sha,
+            commit = await api.commit_many(
+                files,
+                message=f"🤝 更新友链（Astrbot）: {title}",
+                base_sha=pending.base_sha,
             )
-            done.append(f"配置 {commit.url}")
         except GitHubError as e:
-            tail = "；".join(done)
-            return event.plain_result(
-                f"提交失败：{e}" + (f"\n已完成的部分：{tail}" if tail else "")
-            )
+            return event.plain_result(f"提交失败：{e}")
 
         return event.plain_result(
-            "✅ 已提交到 " + str(self._c("repo", "")) + "\n" + "\n".join(done)
+            f"✅ 已提交到 {self._c('repo', '')}（{len(files)} 个文件，1 条提交）\n{commit.url}"
         )
 
     async def terminate(self) -> None:

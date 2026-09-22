@@ -1,4 +1,4 @@
-"""GitHub Contents API 的薄封装：只暴露本插件需要的读文件 / 写文件 / 列目录。"""
+"""GitHub API 薄封装：Contents API 读文件 / 列目录，Git Data API 单提交写多文件。"""
 
 from __future__ import annotations
 
@@ -69,7 +69,13 @@ class ContentsAPI:
             )
         if status == 409:
             return GitHubError(
-                "文件在你读取之后已被他人改动（409）。本次未提交任何内容，请重新执行命令。",
+                "分支在你读取之后已被他人改动（409）。本次未提交任何内容，请重新执行命令。",
+                status,
+            )
+        if status == 422:
+            return GitHubError(
+                f"提交未创建（422，常见原因：分支在你读取之后已被他人改动）。"
+                f"请重新执行命令。详情：{message[:200]}",
                 status,
             )
         return GitHubError(f"GitHub API 返回 {status}：{message[:200]}", status)
@@ -125,25 +131,59 @@ class ContentsAPI:
             raise GitHubError(f"解码 {path} 失败：{e.__class__.__name__}") from e
         return RepoFile(content=content, sha=data["sha"])
 
-    async def put_bytes(
-        self, path: str, data: bytes, *, message: str, sha: str | None
+    async def commit_many(
+        self, files: list[tuple[str, bytes]], *, message: str, base_sha: str
     ) -> CommitResult:
-        body: dict = {
-            "message": message,
-            "content": base64.b64encode(data).decode("ascii"),
-            "branch": self.branch,
-        }
-        if sha:
-            body["sha"] = sha
-        _, resp = await self._call("PUT", self._contents_path(path), body=body)
-        return self._commit_of(resp)
+        """把多个文件写进同一个提交（Git Data API）。
 
-    async def put_file(
-        self, path: str, content: str, *, message: str, sha: str
-    ) -> CommitResult:
-        return await self.put_bytes(
-            path, content.encode("utf-8"), message=message, sha=sha
+        base_sha 是预览阶段读到的提交 SHA；若此后分支头已移动，
+        更新 ref 会失败，本次不会创建任何提交，不会覆盖他人改动。
+        """
+        _, base = await self._call("GET", f"/repos/{self.repo}/git/commits/{base_sha}")
+        entries = []
+        for path, data in files:
+            _, blob = await self._call(
+                "POST",
+                f"/repos/{self.repo}/git/blobs",
+                body={
+                    "content": base64.b64encode(data).decode("ascii"),
+                    "encoding": "base64",
+                },
+            )
+            entries.append(
+                {
+                    "path": path.strip("/"),
+                    "mode": "100644",
+                    "type": "blob",
+                    "sha": blob["sha"],
+                }
+            )
+        _, tree = await self._call(
+            "POST",
+            f"/repos/{self.repo}/git/trees",
+            body={"base_tree": base["tree"]["sha"], "tree": entries},
         )
+        _, commit = await self._call(
+            "POST",
+            f"/repos/{self.repo}/git/commits",
+            body={"message": message, "tree": tree["sha"], "parents": [base_sha]},
+        )
+        await self._call(
+            "PATCH",
+            f"/repos/{self.repo}/git/refs/heads/{quote(self.branch, safe='')}",
+            body={"sha": commit["sha"], "force": False},
+        )
+        return CommitResult(
+            url=str(commit.get("html_url", "")), sha=str(commit.get("sha", ""))
+        )
+
+    async def head_sha(self) -> str:
+        _, data = await self._call(
+            "GET", f"/repos/{self.repo}/commits/{quote(self.branch, safe='/')}"
+        )
+        if not isinstance(data, dict) or "sha" not in data:
+            raise GitHubError("无法读取分支头提交。")
+        return str(data["sha"])
 
     async def list_dir(self, path: str) -> set[str]:
         try:
@@ -162,9 +202,3 @@ class ContentsAPI:
             if isinstance(item, dict) and item.get("name")
         }
 
-    @staticmethod
-    def _commit_of(resp: dict | list) -> CommitResult:
-        if not isinstance(resp, dict) or not isinstance(resp.get("commit"), dict):
-            raise GitHubError("提交成功但响应里没有 commit 信息。")
-        commit = resp["commit"]
-        return CommitResult(url=str(commit.get("html_url", "")), sha=str(commit.get("sha", "")))

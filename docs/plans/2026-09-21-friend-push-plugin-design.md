@@ -62,7 +62,7 @@ astrbot_plugin_friend_push/
 ├── main.py               # 命令注册 / 参数解析 / 确认状态机 / 白名单
 ├── friends_io.py         # 锚点定位插入、TS 对象渲染、查重、unified diff
 ├── cover.py              # 消息里的封面图 → Pillow → webp bytes、slug 推导
-├── github_api.py         # 薄封装 GET/PUT Contents API、SHA 处理
+├── github_api.py         # 薄封装 Contents API 读 / Git Data API 单提交写多文件
 ├── requirements.txt      # 仅 Pillow（见第 14 节，AstrBot 本体已带）
 ├── logo.png              # 插件封面，AstrBot 硬编码只认这个文件名
 └── README.md             # PAT 权限说明 + 命令示例
@@ -117,11 +117,13 @@ AstrBot 的框架耦合全部关在 `main.py` 里。
 6. `friends_io.py` 渲染新对象（Tab 缩进、字段顺序与现有一致、中文不转义）→
    锚点插入 → 得到新全文。
 7. 回复 unified diff + 一句话摘要，会话进 pending。
-8. 收到 `确认` → PUT 封面（base64）→ PUT ts 文件（带步骤 3 的 `sha`）。
-9. 回复两条 commit 的 HTML URL。
+8. 收到 `确认` → Git Data API 单提交：封面与 ts 文件各建 blob → 以预览时记录的
+   分支头 SHA 的 tree 为 base_tree 建新 tree → 建 commit → `force=false` 更新 ref。
+9. 回复这一条 commit 的 HTML URL。
 
-第 8 步顺序是先封面后文件：文件是最终生效的那一笔，封面先成功才能让 `image` 字段指向
-一个真实存在的对象。反过来若封面失败而文件先落地，仓库里会留下指向不存在文件的 `image`。
+封面与配置落在同一条提交里，天然不存在"`image` 字段指向不存在文件"的中间态；
+任一步失败整笔放弃，不创建任何提交。Contents API 的 PUT 一次只能写一个文件、
+每笔各产生一条提交，所以不再使用它做写入。
 
 ## 7. 锚点插入算法
 
@@ -162,7 +164,7 @@ convert_to_file_path() → 读字节（8MB 上限）
 |---|---|
 | 401 / 403 | 明确提示 token 无效或权限不足，不重试，回复与日志全程 mask token |
 | 404 | 提示 `repo` / `config_path` / `branch` 配置有误 |
-| 409 SHA 冲突 | **不覆盖、不自动重试**，提示"文件已被改动，请重新执行命令" |
+| 409 / 422 分支已移动 | **不覆盖、不自动重试**，提示"分支已被他人改动，请重新执行命令" |
 | 参数缺失/非法 | 回复命令语法示例，不进入 API 调用 |
 | siteurl 重复 | 拒绝，提示现有条目位置 |
 | 封面读取/转换失败 | 降级为不写 `image`，继续提交 |
@@ -170,8 +172,8 @@ convert_to_file_path() → 读字节（8MB 上限）
 | pending 过期(30min) | 提示重新执行 |
 | 同会话并发两个提交 | 全局串行锁 + 单会话仅允许一个 pending |
 
-409 不自动重试是刻意的：SHA 冲突意味着有人在网页端同时改了文件，自动重读再写会静默丢掉
-别人的改动。
+409/422 不自动重试是刻意的：分支头已移动意味着有人同时改了仓库，自动重读再写会静默丢掉
+别人的改动；更新 ref 时 `force=false` 保证这一点。
 
 ## 10. 待确认状态
 
@@ -189,8 +191,8 @@ convert_to_file_path() → 读字节（8MB 上限）
 - `cover`：主域名 slug 推导（含两段后缀）、撞名加后缀、四种缩放模式的尺寸计算、
   不放大分支、P/CMYK/L/RGBA/JPEG 输入、非法图片与超大文件报错
 - `main`：参数解析（竖线切分、`key=value` 后缀、非法输入）、白名单、预览、
-  查重拒绝、封面缺失/失败降级、确认时先封面后文件、409 不重复提交、取消与超时
-- `github_api`：base64 读写、401/403/404/409/422 分类、错误信息不含 token
+  查重拒绝、封面缺失/失败降级、确认时封面+配置单提交、409/422 不重复提交、取消与超时
+- `github_api`：base64 读、blob/tree/commit/ref 流程、401/403/404/409/422 分类、错误信息不含 token
 
 `src/config/friendsConfig.ts` 曾被原样下载为 fixture 做过真实文件回归，且插入结果用
 Node 24 直接执行验证过 TS 语法。目标仓库结构调整后，这两项需要重做。
@@ -211,7 +213,7 @@ Node 24 直接执行验证过 TS 语法。目标仓库结构调整后，这两�
 - token 只从配置项读，绝不回显，日志 mask。
 - 建议 fine-grained PAT 限定单仓库 + 仅 `contents: write`，不给 classic token。
 - 白名单为空时拒绝所有请求，而不是放开。
-- commit message 固定前缀 `feat(friends): add <title> via astrbot`，便于事后筛出机器人提交。
+- commit message 固定格式 `🤝 更新友链（Astrbot）: <title>`，便于事后筛出机器人提交。
 
 ## 14. AstrBot 4.28.1 API 核实结果
 
